@@ -11,6 +11,8 @@ from mediapipe.tasks.python.vision.gesture_recognizer import (
 from mediapipe.tasks.python.core.base_options import BaseOptions
 from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
 
+cv2.setNumThreads(0)
+
 WIDTH, HEIGHT = 1280, 720
 MODEL_PATH = os.path.expanduser("~/.mediapipe/models/gesture_recognizer.task")
 
@@ -373,7 +375,7 @@ def main():
         cv2.imshow("Magic Paint", frame)
 
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:
+        if key == 27 or key == ord('q') or key == ord('Q'):
             break
         elif key == ord('c') or key == ord('C'):
             canvas = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
