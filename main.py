@@ -4,6 +4,7 @@ import time
 import os
 import math
 import random
+from datetime import datetime
 from mediapipe.tasks.python.vision.gesture_recognizer import (
     GestureRecognizer,
     GestureRecognizerOptions,
@@ -15,6 +16,18 @@ cv2.setNumThreads(0)
 
 WIDTH, HEIGHT = 1280, 720
 MODEL_PATH = os.path.expanduser("~/.mediapipe/models/gesture_recognizer.task")
+OUTPUT_DIR = "captures"
+
+COLORS = {
+    1: (255, 100, 100),
+    2: (100, 255, 100),
+    3: (100, 150, 255),
+    4: (255, 255, 100),
+    5: (255, 100, 255),
+    6: (255, 200, 100),
+}
+
+COLOR_NAMES = {1: "Red", 2: "Green", 3: "Blue", 4: "Yellow", 5: "Pink", 6: "Orange"}
 
 
 class MagicSparkle:
@@ -208,6 +221,16 @@ def draw_hand_landmarks(img, landmarks, w, h, color):
         cv2.circle(img, (x, y), 2, (255, 255, 255), -1)
 
 
+def save_canvas(canvas, frame, base_name="magic_paint"):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(OUTPUT_DIR, f"{base_name}_{ts}.png")
+    cv2.imwrite(path, canvas)
+    path_full = os.path.join(OUTPUT_DIR, f"{base_name}_full_{ts}.png")
+    cv2.imwrite(path_full, frame)
+    return path, path_full
+
+
 def main():
     if not os.path.exists(MODEL_PATH):
         print("ERROR: Gesture model tidak ditemukan.")
@@ -236,6 +259,11 @@ def main():
     magic_alpha = 0.0
     burst_charge = 0
     canvas = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+    show_camera = True
+    brush_size = 5
+    selected_color = None
+    notification = ""
+    notify_timer = 0
 
     while True:
         ret, frame = cap.read()
@@ -249,6 +277,10 @@ def main():
 
         frame = cv2.flip(frame, 1)
         frame = cv2.resize(frame, (WIDTH, HEIGHT))
+
+        if not show_camera:
+            frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = Image(image_format=ImageFormat.SRGB, data=rgb)
         result = gesture_recognizer.recognize(mp_image)
@@ -268,8 +300,13 @@ def main():
                     continue
                 hands_detected = True
 
-                color = get_magic_color(t, hi)
-                draw_hand_landmarks(frame, landmarks, WIDTH, HEIGHT, color)
+                if selected_color:
+                    color = selected_color
+                else:
+                    color = get_magic_color(t, hi)
+
+                if show_camera:
+                    draw_hand_landmarks(frame, landmarks, WIDTH, HEIGHT, color)
 
                 tip = landmarks[8]
                 xt, yt = int(tip.x * WIDTH), int(tip.y * HEIGHT)
@@ -291,7 +328,7 @@ def main():
                         s.size = random.uniform(2, 6)
                         sparkles.append(s)
 
-                    bw = 5 if is_big else 2
+                    bw = brush_size if is_big else max(2, brush_size // 2)
                     c_glow = tuple(min(255, int(ch * 1.5)) for ch in color)
                     cv2.line(canvas, (xt, yt), (xt, yt), c_glow, bw + 2)
                     cv2.line(canvas, (xt, yt), (xt, yt), color, bw)
@@ -304,9 +341,10 @@ def main():
                     trails[-1].add(xt, yt)
                     trails[-1].color = color
 
-                    cv2.circle(frame, (xt, yt), 8,
-                               tuple(min(255, c // 2) for c in color), -1)
-                    cv2.circle(frame, (xt, yt), 4, (255, 255, 255), -1)
+                    if show_camera:
+                        cv2.circle(frame, (xt, yt), 8,
+                                   tuple(min(255, c // 2) for c in color), -1)
+                        cv2.circle(frame, (xt, yt), 4, (255, 255, 255), -1)
 
                 if gesture == 'Closed_Fist':
                     for _ in range(40):
@@ -318,6 +356,8 @@ def main():
                     canvas = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
                     runes.clear()
                     trails.clear()
+                    notification = "Canvas cleared!"
+                    notify_timer = 60
 
                 prev_gestures[hi] = gesture
 
@@ -351,9 +391,10 @@ def main():
             cv2.circle(frame, (cx, cy), int(20 * pulse),
                        (255, 255, 200), max(1, int(3 * pulse)))
 
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (WIDTH, HEIGHT), (5, 5, 15), -1)
-        cv2.addWeighted(overlay, 0.08, frame, 0.92, 0, frame)
+        if show_camera:
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (WIDTH, HEIGHT), (5, 5, 15), -1)
+            cv2.addWeighted(overlay, 0.08, frame, 0.92, 0, frame)
 
         neon = cv2.GaussianBlur(canvas, (0, 0), 5)
         frame = cv2.addWeighted(frame, 1, neon, 0.5, 0)
@@ -367,10 +408,32 @@ def main():
 
         cv2.putText(frame, "~ MAGIC PAINT ~", (WIDTH // 2 - 110, 35),
                     cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 100), 1, cv2.LINE_AA)
-        cv2.putText(frame, f"Sparkles:{len(sparkles)} Runes:{len(runes)}",
-                    (30, 70), cv2.FONT_HERSHEY_DUPLEX, 0.4, (180, 180, 200), 1, cv2.LINE_AA)
-        cv2.putText(frame, "C=Clear  ESC=Exit",
-                    (30, HEIGHT - 25), cv2.FONT_HERSHEY_DUPLEX, 0.4, (120, 120, 140), 1, cv2.LINE_AA)
+
+        status = f"Brush:{brush_size}  BG:{'ON' if show_camera else 'OFF'}"
+        if selected_color:
+            cname = COLOR_NAMES.get(selected_color, "Custom")
+            status += f"  Color:{cname}"
+        else:
+            status += "  Color:AUTO"
+        cv2.putText(frame, status, (30, 68),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.4, (180, 180, 200), 1, cv2.LINE_AA)
+
+        controls = [
+            "C=Clear  S=Save  H=BG  +/-=Brush  1-6=Color  0=Auto  Q=Exit",
+        ]
+        for ci, ctrl in enumerate(controls):
+            cv2.putText(frame, ctrl, (30, HEIGHT - 25 - ci * 20),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.35, (120, 120, 140), 1, cv2.LINE_AA)
+
+        if notify_timer > 0:
+            notify_timer -= 1
+            alpha = min(1.0, notify_timer / 30)
+            cv2.putText(frame, notification, (WIDTH // 2 - 100, HEIGHT // 2),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 200), 1, cv2.LINE_AA)
+
+        if not show_camera:
+            cv2.putText(frame, "CAMERA OFF", (WIDTH // 2 - 60, HEIGHT // 2 - 40),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.5, (80, 80, 100), 1, cv2.LINE_AA)
 
         cv2.imshow("Magic Paint", frame)
 
@@ -382,6 +445,32 @@ def main():
             runes.clear()
             trails.clear()
             sparkles.clear()
+            notification = "Canvas cleared!"
+            notify_timer = 60
+        elif key == ord('s') or key == ord('S'):
+            canvas_path, full_path = save_canvas(canvas, frame)
+            notification = f"Saved: {os.path.basename(canvas_path)}"
+            notify_timer = 90
+        elif key == ord('h') or key == ord('H'):
+            show_camera = not show_camera
+            notification = f"Camera: {'ON' if show_camera else 'OFF'}"
+            notify_timer = 60
+        elif key == ord('=') or key == ord('+'):
+            brush_size = min(30, brush_size + 1)
+            notification = f"Brush size: {brush_size}"
+            notify_timer = 60
+        elif key == ord('-') or key == ord('_'):
+            brush_size = max(1, brush_size - 1)
+            notification = f"Brush size: {brush_size}"
+            notify_timer = 60
+        elif key == ord('0'):
+            selected_color = None
+            notification = "Color: AUTO"
+            notify_timer = 60
+        elif ord('1') <= key <= ord('6'):
+            selected_color = COLORS[key]
+            notification = f"Color: {COLOR_NAMES[key]}"
+            notify_timer = 60
 
     gesture_recognizer.close()
     cap.release()

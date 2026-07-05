@@ -37,4 +37,16 @@ python main.py
 | Closed_Fist   | Clear canvas                  |
 | Gesture change| Burst of sparkles + rune      |
 
-Press `C` to clear the canvas, `ESC` to exit.
+## Keyboard Controls
+
+| Key     | Action                    |
+|---------|---------------------------|
+| `C`     | Clear canvas              |
+| `S`     | Save canvas as PNG        |
+| `H`     | Toggle camera background  |
+| `+`/`-` | Adjust brush size         |
+| `1`-`6` | Select color preset       |
+| `0`     | Auto color mode           |
+| `Q`/ESC | Exit                      |
+
+Colors are saved to the `captures/` directory as PNG files.
